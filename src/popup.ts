@@ -15,8 +15,8 @@ grouping.checked = localStorage.getItem('group-hostname') === 'true';
 function updateGrouping() {
   grouping.disabled = mode.value !== 'hostname';
   hint.textContent = grouping.disabled
-    ? 'Choose hostname sorting to create groups.'
-    : 'Group 2+ ungrouped tabs with the same hostname.';
+    ? 'Choose hostname sorting to group tabs.'
+    : 'Create groups for 2+ tabs; add matches to Tab Sorter groups.';
 }
 
 mode.addEventListener('change', () => {

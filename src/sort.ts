@@ -1,5 +1,7 @@
 export type SortMode = 'title' | 'hostname';
 type Tab = chrome.tabs.Tab & { id: number };
+const groupPrefix = '[🤖] ';
+const ownershipPrefix = 'hostname-group:';
 
 export function hostname(tab: Pick<chrome.tabs.Tab, 'url' | 'pendingUrl'>): string {
   try {
@@ -37,7 +39,10 @@ function blocks(tabs: Tab[], mode: SortMode): Tab[][] {
   return result.sort((a, b) => compare(a[0], b[0]));
 }
 
-export async function sortCurrentWindow(mode: SortMode, groupByHostname: boolean, api = chrome) {
+export async function sortCurrentWindow(
+  mode: SortMode, groupByHostname: boolean, api = chrome,
+  storage: Pick<Storage, 'getItem' | 'setItem'> = localStorage,
+) {
   const query = () => api.tabs.query({ currentWindow: true });
   let tabs = await query();
   let groupsCreated = 0;
@@ -51,11 +56,30 @@ export async function sortCurrentWindow(mode: SortMode, groupByHostname: boolean
       if (ids) ids.push(tab.id);
       else candidates.set(host, [tab.id]);
     }
-    for (const [title, tabIds] of candidates) {
-      if (tabIds.length < 2) continue;
-      const groupId = await api.tabs.group({ tabIds });
-      await api.tabGroups.update(groupId, { title });
-      groupsCreated++;
+    const groups = candidates.size ? await api.tabGroups.query({ windowId: tabs[0].windowId }) : [];
+    const existing = new Map<string, number | null>();
+    // ponytail: fixed labels can be copied; use unique markers if strict provenance is needed.
+    for (const group of groups) {
+      if (!group.title?.startsWith(groupPrefix)) continue;
+      const host = group.title.slice(groupPrefix.length);
+      if (storage.getItem(ownershipPrefix + host) !== 'true') continue;
+      const members = tabs.filter(tab => tab.groupId === group.id);
+      const eligible = members.length > 0 && members.every(tab =>
+        !tab.pinned && tab.id !== undefined && hostname(tab) === host);
+      // Null pauses this hostname for mixed contents or ambiguous duplicate labels.
+      existing.set(host, existing.has(host) || !eligible ? null : group.id);
+    }
+    for (const [host, tabIds] of candidates) {
+      const groupId = existing.get(host);
+      if (groupId === null) continue;
+      if (groupId !== undefined) {
+        await api.tabs.group({ groupId, tabIds });
+      } else if (tabIds.length >= 2) {
+        const createdId = await api.tabs.group({ tabIds });
+        await api.tabGroups.update(createdId, { title: groupPrefix + host });
+        storage.setItem(ownershipPrefix + host, 'true');
+        groupsCreated++;
+      }
     }
     // Grouping changes indices and membership; plan from Chrome's updated state.
     tabs = await query();
