@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Tab Sorter",
+  "version": "0.1.0",
+  "description": "Sort tabs by title or hostname, with optional hostname groups. Pinned tabs stay untouched.",
+  "permissions": [
+    "tabs",
+    "tabGroups"
+  ],
+  "action": {
+    "default_popup": "index.html",
+    "default_title": "Sort tabs"
+  }
+}

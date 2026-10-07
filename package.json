@@ -1,0 +1,24 @@
+{
+  "name": "tab-sorter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "watch": "vite build --watch",
+    "check": "tsc --noEmit",
+    "test": "node --test test/*.test.ts",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.3.4",
+    "@types/node": "^26.6.4",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.3"
+  }
+}

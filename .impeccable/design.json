@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-07T10:46:31.590812+00:00",
+  "title": "Design System: Tab Sorter",
+  "extensions": {
+    "colorMeta": {
+      "text": {
+        "role": "neutral",
+        "displayName": "Canvas text"
+      },
+      "background": {
+        "role": "neutral",
+        "displayName": "Canvas background"
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Supporting text"
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Control border and separator"
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Green action"
+      },
+      "on-accent": {
+        "role": "neutral",
+        "displayName": "Action foreground"
+      },
+      "control-background": {
+        "role": "neutral",
+        "displayName": "Select fill"
+      },
+      "accent-hover": {
+        "role": "primary",
+        "displayName": "Enabled action hover"
+      },
+      "error": {
+        "role": "error",
+        "displayName": "Failure status"
+      }
+    },
+    "typographyMeta": {
+      "title": {
+        "displayName": "Title",
+        "purpose": "Popup heading."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Purpose, controls, and checkbox label."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Sort label and action."
+      },
+      "supporting": {
+        "displayName": "Supporting",
+        "purpose": "Grouping hint and footer."
+      },
+      "status": {
+        "displayName": "Status",
+        "purpose": "Live feedback."
+      }
+    },
+    "shadows": [],
+    "motion": [],
+    "breakpoints": []
+  },
+  "components": [
+    {
+      "name": "Sort action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Full-width action; enabled hover changes fill, disabled opacity is 0.65. No custom active state.",
+      "html": "<button class=\"ds-sort\" type=\"button\">Sort tabs</button>",
+      "css": ".ds-sort { color-scheme: light dark; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.5; color: light-dark(#24332e, #e6eee9); width: 100%; min-height: 42px; border-radius: 6px; border: 0; padding: 10px 16px; font-weight: 600; background: var(--accent, light-dark(#23633f, #a7dfb8)); color: var(--on-accent, light-dark(#ffffff, #122d1b)); cursor: pointer; } .ds-sort:hover:not(:disabled) { background: light-dark(#174c2d, #bcecca); } .ds-sort:disabled { cursor: default; opacity: 0.65; } .ds-sort:focus-visible { outline: 2px solid var(--accent, light-dark(#23633f, #a7dfb8)); outline-offset: 3px; }"
+    },
+    {
+      "name": "Sort select",
+      "kind": "input",
+      "refersTo": "select",
+      "description": "Native select; no custom hover or active treatment.",
+      "html": "<label class=\"ds-sort-label\" for=\"ds-mode\">Sort by</label><select class=\"ds-select\" id=\"ds-mode\"><option>Title \u00b7 A\u2013Z</option><option>Hostname \u00b7 A\u2013Z</option></select>",
+      "css": ".ds-sort-label { color-scheme: light dark; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.5; color: light-dark(#24332e, #e6eee9); display: block; margin-bottom: 8px; font-weight: 600; } .ds-select { color-scheme: light dark; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.5; color: light-dark(#24332e, #e6eee9); width: 100%; min-height: 42px; border-radius: 6px; padding: 8px 10px; background: light-dark(#fff, #233128); border: 1px solid var(--line, light-dark(#bccbc0, #52685a)); } .ds-select:focus-visible { outline: 2px solid var(--accent, light-dark(#23633f, #a7dfb8)); outline-offset: 3px; }"
+    },
+    {
+      "name": "Hostname grouping",
+      "kind": "input",
+      "description": "Native checkbox with supporting hint; disabled label is muted. No custom hover or active state.",
+      "html": "<label class=\"ds-checkbox-label\" for=\"ds-group\"><input class=\"ds-checkbox\" id=\"ds-group\" type=\"checkbox\" aria-describedby=\"ds-hint\" disabled><span>Group by hostname</span></label><p class=\"ds-hint\" id=\"ds-hint\">Choose hostname sorting to create groups.</p>",
+      "css": ".ds-checkbox-label { color-scheme: light dark; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.5; color: light-dark(#24332e, #e6eee9); display: flex; align-items: center; gap: 8px; cursor: pointer; } .ds-checkbox { width: 16px; height: 16px; margin: 0; accent-color: var(--accent, light-dark(#23633f, #a7dfb8)); } .ds-checkbox-label:has(input:disabled) { color: var(--muted, light-dark(#53665c, #afc2b5)); cursor: default; } .ds-hint { color-scheme: light dark; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.5; color: light-dark(#24332e, #e6eee9); margin: 6px 0 0 24px; font-size: 12px; color: var(--muted, light-dark(#53665c, #afc2b5)); } .ds-checkbox:focus-visible { outline: 2px solid var(--accent, light-dark(#23633f, #a7dfb8)); outline-offset: 3px; }"
+    },
+    {
+      "name": "Status feedback",
+      "kind": "custom",
+      "description": "Empty status hides; normal status inherits text; data-error selects the failure color.",
+      "html": "<p class=\"ds-status\" role=\"status\" aria-live=\"polite\" aria-atomic=\"true\">Tabs sorted.</p>",
+      "css": ".ds-status { color-scheme: light dark; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.5; color: light-dark(#24332e, #e6eee9); margin: 6px 0 0; font-size: 13px; overflow-wrap: anywhere; } .ds-status:empty { display: none; } .ds-status:not(:empty) { margin-top: 12px; } .ds-status[data-error] { color: light-dark(#9b302a, #ffb4aa); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Minimal native Chrome popup",
+    "overview": "A user-approved compact utility with system typography, plain native controls, OS light/dark theming, and a green accent. This records the shipped implementation, not a new brand direction.",
+    "keyCharacteristics": [
+      "Native select and checkbox.",
+      "Fixed narrow layout and full-width action.",
+      "Flat surfaces, visible keyboard focus, quiet supporting text."
+    ],
+    "rules": [],
+    "dos": [
+      "Do retain the 320px popup, 24px inset, and native controls.",
+      "Do follow OS light/dark colors and preserve visible keyboard focus."
+    ],
+    "donts": [
+      "Don't introduce custom fonts, decorative brand requirements, or raster artwork.",
+      "Don't replace the flat popup with cards, shadows, or animated controls."
+    ]
+  }
+}
