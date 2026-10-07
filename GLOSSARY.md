@@ -30,15 +30,18 @@ _Avoid_: Domain, site, origin
 A group recognized as Tab Sorter's own by its ownership label and a hostname for which Tab Sorter has previously created a group. New hostname groups start with at least two unpinned, ungrouped tabs sharing that exact hostname.
 _Avoid_: Domain group
 
+**Site name**:
+A website's human-readable name used in a hostname group's title, with the hostname as a fallback. Different hostnames may share a site name without belonging to the same group.
+
 **Ownership label**:
-The fixed `[🤖]` prefix before a hostname in a group's title, indicating Tab Sorter ownership. It is an ownership convention, not proof of who created a group; removing it relinquishes recognition.
+The fixed `[🤖]` prefix before a recorded site name or hostname in a group's title, indicating Tab Sorter ownership. It is an ownership convention, not proof of who created a group; removing it relinquishes recognition.
 
 **Protected group**:
 A tab group not recognized as Tab Sorter's own, even if its members share a hostname. Its membership is preserved rather than expanded by hostname grouping.
 _Avoid_: Manual group (when excluding groups created by other tools)
 
 **Group expansion**:
-The addition of matching unpinned, ungrouped tabs to an existing hostname group while retaining its identity and existing members. A single matching tab is sufficient, but expansion is paused when existing members differ in hostname or the ownership label matches multiple groups in the current window.
+The addition of matching unpinned, ungrouped tabs to an existing hostname group while retaining its identity and existing members. A single matching tab is sufficient, but expansion is paused when existing members do not identify one recorded hostname or multiple groups in the current window match that hostname.
 _Avoid_: Group creation, group merging
 
 **Sort block**:

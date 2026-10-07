@@ -27,11 +27,12 @@ A toolbar popup acts on the current Chrome window only. The built extension load
 - Title and hostname sorting are ascending.
 - Sorting is on demand, not event-driven.
 - Pinned tabs remain untouched.
-- Existing groups retain their members, names, colors, and collapsed state; tabs sort inside them and groups move as intact blocks ordered by their first sorted tab.
+- Existing groups retain their members, colors, and collapsed state; protected group names remain unchanged. Recognized Tab Sorter groups may receive a resolved site name during hostname grouping. Tabs sort inside groups, which move as intact blocks ordered by their first sorted tab.
 - Hostname grouping is optional and only applies to unpinned, ungrouped HTTP(S) tabs. New groups require at least two matching tabs; a single matching tab can join a recognized existing hostname group.
-- Generated groups use an emoji-first title (`[🤖] example.com`) and locally recorded hostnames for ownership recognition across browser restarts. Older unmarked groups are not adopted. A user-created group with an identical recorded label cannot be distinguished from a generated group.
-- Expansion pauses when existing members no longer all match the group's hostname or multiple groups in the current window share its recorded label. Matching arrivals remain ungrouped rather than creating another group.
-- Removing the ownership label or clearing extension data removes recognition; no new permissions or background listeners are required.
+- Generated groups use an emoji-first site name (`[🤖] GitHub`), resolved on demand from open-tab metadata (`og:site_name`, then `application-name`), with a hostname fallback. Previously recognized hostname labels receive site names on the next hostname-grouping run, even without arrivals; existing friendly names survive unavailable metadata.
+- Locally recorded hostname/label associations preserve ownership recognition across browser restarts. Identical site names do not merge different hostnames. Older unmarked groups are not adopted. A user-created group with an identical recorded hostname and label cannot be distinguished from a generated group.
+- Expansion and renaming pause when existing members do not identify one recorded hostname or multiple groups in the current window match the same recorded hostname. Matching arrivals remain ungrouped rather than creating another group.
+- Removing the ownership label or clearing extension data removes recognition. Required scripting and HTTP(S) website access permit on-demand metadata reads; no background listeners or network lookups are used.
 - Browser/internal pages remain ungrouped.
 - Hostnames ignore path and protocol but retain subdomains.
 
