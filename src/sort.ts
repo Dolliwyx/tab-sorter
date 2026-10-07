@@ -2,6 +2,41 @@ export type SortMode = 'title' | 'hostname';
 type Tab = chrome.tabs.Tab & { id: number };
 const groupPrefix = '[🤖] ';
 const ownershipPrefix = 'hostname-group:';
+const labelPrefix = 'hostname-group-label:';
+
+function labelHosts(storage: Pick<Storage, 'getItem'>, label: string): string[] {
+  const value: unknown = JSON.parse(storage.getItem(labelPrefix + label) || '[]');
+  if (!Array.isArray(value) || !value.every(host => typeof host === 'string')) {
+    throw new Error('Invalid saved group label.');
+  }
+  return value;
+}
+
+async function siteName(tabs: chrome.tabs.Tab[], host: string, api: typeof chrome): Promise<string> {
+  for (const tab of tabs) {
+    if (tab.id === undefined || tab.pinned || tab.discarded || tab.pendingUrl) continue;
+    try {
+      const [injection] = await api.scripting.executeScript({
+        target: { tabId: tab.id },
+        injectImmediately: true,
+        func: () => {
+          for (const selector of ['meta[property="og:site_name"], meta[name="og:site_name"]', 'meta[name="application-name"]']) {
+            const name = document.querySelector<HTMLMetaElement>(selector)?.content
+              .replace(/\s+/g, ' ').replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, '').trim().slice(0, 80);
+            if (name) return { host: location.hostname, name };
+          }
+          return { host: location.hostname, name: '' };
+        },
+      });
+      if (injection?.result?.host === host && typeof injection.result.name === 'string' && injection.result.name) {
+        return injection.result.name;
+      }
+    } catch {
+      // Unloaded, restricted or closed tabs must not prevent sorting.
+    }
+  }
+  return '';
+}
 
 export function hostname(tab: Pick<chrome.tabs.Tab, 'url' | 'pendingUrl'>): string {
   try {
@@ -56,18 +91,35 @@ export async function sortCurrentWindow(
       if (ids) ids.push(tab.id);
       else candidates.set(host, [tab.id]);
     }
-    const groups = candidates.size ? await api.tabGroups.query({ windowId: tabs[0].windowId }) : [];
+    const groups = tabs.some(tab => !tab.pinned) ? await api.tabGroups.query({ windowId: tabs[0].windowId }) : [];
     const existing = new Map<string, number | null>();
     // ponytail: fixed labels can be copied; use unique markers if strict provenance is needed.
     for (const group of groups) {
       if (!group.title?.startsWith(groupPrefix)) continue;
-      const host = group.title.slice(groupPrefix.length);
-      if (storage.getItem(ownershipPrefix + host) !== 'true') continue;
+      const label = group.title.slice(groupPrefix.length);
+      const hosts = [...new Set([label, ...labelHosts(storage, label)])]
+        .filter(host => storage.getItem(ownershipPrefix + host) === 'true');
       const members = tabs.filter(tab => tab.groupId === group.id);
-      const eligible = members.length > 0 && members.every(tab =>
-        !tab.pinned && tab.id !== undefined && hostname(tab) === host);
-      // Null pauses this hostname for mixed contents or ambiguous duplicate labels.
-      existing.set(host, existing.has(host) || !eligible ? null : group.id);
+      const eligible = hosts.filter(host => members.length > 0 && members.every(tab =>
+        !tab.pinned && tab.id !== undefined && hostname(tab) === host));
+      // A shared site name is safe only when members identify one exact hostname.
+      for (const host of eligible.length ? eligible : hosts) {
+        existing.set(host, existing.has(host) || !eligible.length ? null : group.id);
+      }
+    }
+    const recordLabel = (host: string, label: string) => {
+      if (label === host) return;
+      const hosts = labelHosts(storage, label);
+      if (!hosts.includes(host)) storage.setItem(labelPrefix + label, JSON.stringify([...hosts, host]));
+    };
+    for (const [host, groupId] of existing) {
+      if (groupId === null) continue;
+      const members = tabs.filter(tab => tab.groupId === groupId);
+      const name = await siteName(members, host, api);
+      if (!name || groupPrefix + name === groups.find(group => group.id === groupId)!.title) continue;
+      // Record before renaming so a storage failure leaves the old label recognizable.
+      recordLabel(host, name);
+      await api.tabGroups.update(groupId, { title: groupPrefix + name });
     }
     for (const [host, tabIds] of candidates) {
       const groupId = existing.get(host);
@@ -75,8 +127,10 @@ export async function sortCurrentWindow(
       if (groupId !== undefined) {
         await api.tabs.group({ groupId, tabIds });
       } else if (tabIds.length >= 2) {
+        const name = await siteName(tabs.filter(tab => tabIds.includes(tab.id!)), host, api) || host;
         const createdId = await api.tabs.group({ tabIds });
-        await api.tabGroups.update(createdId, { title: groupPrefix + host });
+        await api.tabGroups.update(createdId, { title: groupPrefix + name });
+        recordLabel(host, name);
         storage.setItem(ownershipPrefix + host, 'true');
         groupsCreated++;
       }

@@ -5,7 +5,12 @@
   "description": "Sort tabs by title or hostname, with optional hostname groups. Pinned tabs stay untouched.",
   "permissions": [
     "tabs",
-    "tabGroups"
+    "tabGroups",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
   ],
   "action": {
     "default_popup": "index.html",
