@@ -37,7 +37,7 @@ A website's human-readable name used in a hostname group's title, with the hostn
 The fixed `[🤖]` prefix before a recorded site name or hostname in a group's title, indicating Tab Sorter ownership. It is an ownership convention, not proof of who created a group; removing it relinquishes recognition.
 
 **Protected group**:
-A tab group not recognized as Tab Sorter's own, even if its members share a hostname. Its membership is preserved rather than expanded by hostname grouping.
+A tab group not safely recognized as Tab Sorter's own, including groups with ambiguous ownership or mismatched contents. Its membership is preserved rather than expanded by hostname grouping.
 _Avoid_: Manual group (when excluding groups created by other tools)
 
 **Group expansion**:
@@ -53,10 +53,10 @@ Ascending title order that ignores case and treats numbers numerically, so `Tab 
 _Avoid_: Lexicographic order
 
 **Title sorting**:
-An ordering of sort blocks by their first tab after their members are placed in natural title order. It is not necessarily a globally alphabetical ordering of individual tabs.
+An ordering with protected groups first, recognized hostname groups second, and ungrouped tabs last; sort blocks within each section use their first tab after their members are placed in natural title order. It is not necessarily a globally alphabetical ordering of individual tabs.
 
 **Hostname sorting**:
-An ordering of sort blocks by their first tab after their members are ordered by hostname, then title. Tabs without an HTTP or HTTPS hostname precede website tabs.
+An ordering with protected groups first, recognized hostname groups second, and ungrouped tabs last; sort blocks within each section use their first tab after their members are ordered by hostname, then title. Tabs without an HTTP or HTTPS hostname precede website tabs within the same section.
 _Avoid_: Domain sorting
 
 **Hostname grouping**:
