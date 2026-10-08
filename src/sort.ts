@@ -14,7 +14,7 @@ function labelHosts(storage: Pick<Storage, 'getItem'>, label: string): string[] 
 
 async function siteName(tabs: chrome.tabs.Tab[], host: string, api: typeof chrome): Promise<string> {
   for (const tab of tabs) {
-    if (tab.id === undefined || tab.pinned || tab.discarded || tab.pendingUrl) continue;
+    if (tab.id === undefined || tab.pinned || tab.discarded || tab.frozen || tab.pendingUrl) continue;
     try {
       const [injection] = await api.scripting.executeScript({
         target: { tabId: tab.id },

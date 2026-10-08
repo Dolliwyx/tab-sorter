@@ -451,6 +451,61 @@ test('shared site names keep exact hostnames separate and preserve ambiguity saf
   }
 });
 
+test('a frozen first member cannot block live metadata or exclude frozen tabs from grouping and sorting', async () => {
+  const chrome = browser([tab(1, 'Zulu', 'https://github.com'), tab(2, 'Alpha', 'https://github.com')]);
+  chrome.tabs()[0].frozen = true;
+  chrome.metadata.set(2, { og: 'GitHub' });
+  let resumeFrozen!: () => void;
+  const frozenRead = new Promise<chrome.scripting.InjectionResult[]>(resolve => { resumeFrozen = () => resolve([]); });
+  const executeScript = chrome.api.scripting.executeScript;
+  chrome.api.scripting.executeScript = async injection => {
+    if (injection.target.tabId === 1) {
+      chrome.reads.push(1);
+      return frozenRead;
+    }
+    return executeScript(injection);
+  };
+
+  const sorting = sortCurrentWindow('hostname', true, chrome.api, chrome.storage);
+  try {
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.deepEqual([...chrome.reads], [2], 'Read the live member without waiting for the frozen member');
+    assert.deepEqual(await sorting, { tabsSorted: 2, groupsCreated: 1 });
+    assert.deepEqual(chrome.ids(), [2, 1]);
+    assert.ok(chrome.tabs().every(tab => tab.groupId === 100));
+    assert.equal(chrome.groups.get(100)?.title, '[🤖] GitHub');
+    assert.equal(chrome.tabs().find(tab => tab.id === 1)?.frozen, true);
+  } finally {
+    resumeFrozen();
+    await sorting;
+  }
+});
+
+test('all-frozen members use the hostname fallback or preserve an existing friendly label', async () => {
+  for (const existing of [false, true]) {
+    const chrome = browser([
+      tab(1, 'Zulu', 'https://github.com', existing ? 42 : -1),
+      tab(2, 'Alpha', 'https://github.com', existing ? 42 : -1),
+    ], new Map([
+      ['hostname-group:github.com', 'true'], ['hostname-group-label:GitHub', '["github.com"]'],
+    ]));
+    if (existing) chrome.groups.get(42)!.title = '[🤖] GitHub';
+    for (const tab of chrome.tabs()) {
+      tab.frozen = true;
+      chrome.metadata.set(tab.id!, { og: 'Must not be read' });
+    }
+    const metadata = existing ? { ...chrome.groups.get(42)! } : undefined;
+
+    assert.deepEqual(await sortCurrentWindow('hostname', true, chrome.api, chrome.storage),
+      { tabsSorted: 2, groupsCreated: existing ? 0 : 1 });
+    assert.deepEqual(chrome.reads, []);
+    assert.deepEqual(chrome.ids(), [2, 1]);
+    assert.ok(chrome.tabs().every(tab => tab.groupId === (existing ? 42 : 100) && tab.frozen));
+    if (existing) assert.deepEqual(chrome.groups.get(42), metadata);
+    else assert.equal(chrome.groups.get(100)?.title, '[🤖] github.com');
+  }
+});
+
 test('metadata reads exclude pending/discarded tabs and do not run when grouping is off', async () => {
   const chrome = browser([tab(1, 'A', 'https://github.com'), tab(2, 'B', 'https://github.com')]);
   chrome.tabs()[0].pendingUrl = 'https://github.com/loading';
