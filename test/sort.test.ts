@@ -58,21 +58,25 @@ function browser(initial: chrome.tabs.Tab[], records = new Map<string, string>()
         assert.deepEqual(options, { currentWindow: true });
         return tabs.map(tab => ({ ...tab }));
       },
-      async move(id: number, { index }: { index: number }) {
-        const from = tabs.findIndex(tab => tab.id === id);
-        assert.ok(from >= 0);
-        const [tab] = tabs.splice(from, 1);
-        assert.equal(tab.pinned, false, 'Pinned tabs must never be moved');
-        const siblings = tabs.filter(other => other.groupId === tab.groupId);
-        if (tab.groupId !== -1 && siblings.length) {
-          const start = tabs.indexOf(siblings[0]);
-          assert.ok(index >= start && index <= start + siblings.length, 'Move only within the tab\'s group');
-        } else {
-          boundary(index);
+      async move(tabIds: number | number[], { index }: { index: number }) {
+        const ids = Array.isArray(tabIds) ? tabIds : [tabIds];
+        for (const id of ids) {
+          const from = tabs.findIndex(tab => tab.id === id);
+          assert.ok(from >= 0);
+          const [tab] = tabs.splice(from, 1);
+          assert.equal(tab.pinned, false, 'Pinned tabs must never be moved');
+          const siblings = tabs.filter(other => other.groupId === tab.groupId);
+          if (tab.groupId !== -1 && siblings.length) {
+            const start = tabs.indexOf(siblings[0]);
+            assert.ok(index >= start && index <= start + siblings.length, 'Move only within the tab\'s group');
+          } else {
+            boundary(index);
+          }
+          tabs.splice(index, 0, tab);
+          reindex();
+          index++;
         }
-        tabs.splice(index, 0, tab);
-        reindex();
-        calls.push({ operation: 'move', ids: [id] });
+        calls.push({ operation: 'move', ids });
       },
       async group({ tabIds, groupId }: { tabIds: number[]; groupId?: number }) {
         const members = tabs.filter(tab => tabIds.includes(tab.id!));
@@ -133,6 +137,24 @@ test('title sorting preserves pinned order, manual group membership and metadata
   assert.deepEqual(chrome.tabs().filter(tab => tab.groupId === 8).map(tab => tab.id), [6, 7]);
   assert.deepEqual(chrome.groups.get(8), { title: 'Manual', color: 'blue', collapsed: true });
   assert.ok(!chrome.calls.some(call => call.operation === 'group'));
+});
+
+test('a large group uses one ordered member batch after whole-group placement', async () => {
+  const members = Array.from({ length: 500 }, (_, index) => tab(index + 3, `Tab ${500 - index}`, undefined, 7));
+  const chrome = browser([tab(1, 'Pinned', undefined, -1, true), tab(2, 'Ungrouped'), ...members]);
+  const orderedIds = members.map(tab => tab.id!).reverse();
+  const metadata = { ...chrome.groups.get(7)! };
+
+  assert.deepEqual(await sortCurrentWindow('title', false, chrome.api, chrome.storage),
+    { tabsSorted: 501, groupsCreated: 0 });
+  assert.deepEqual(chrome.ids(), [1, ...orderedIds, 2]);
+  assert.deepEqual(chrome.groups.get(7), metadata);
+  assert.equal(chrome.calls.length, 3, 'Use one whole-group move, one member batch, and one singleton batch');
+  assert.deepEqual(chrome.calls, [
+    { operation: 'moveGroup', ids: members.map(tab => tab.id!) },
+    { operation: 'move', ids: orderedIds },
+    { operation: 'move', ids: [2] },
+  ]);
 });
 
 test('hostname grouping excludes pinned/manual tabs, singletons, invalid/internal URLs, and subdomains', async () => {

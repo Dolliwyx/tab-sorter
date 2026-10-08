@@ -152,10 +152,8 @@ export async function sortCurrentWindow(
     if (block[0].groupId !== -1) {
       await api.tabGroups.move(block[0].groupId, { index });
     }
-    for (const tab of block) {
-      await api.tabs.move(tab.id, { index });
-      index++;
-    }
+    await api.tabs.move(block.map(tab => tab.id), { index });
+    index += block.length;
   }
 
   return { tabsSorted: movable.length, groupsCreated };
