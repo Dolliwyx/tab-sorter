@@ -129,7 +129,7 @@ test('title sorting preserves pinned order, manual group membership and metadata
     tab(6, 'Alpha', undefined, 8), tab(7, 'alpha', undefined, 8),
   ]);
   assert.deepEqual(await sortCurrentWindow('title', true, chrome.api, chrome.storage), { tabsSorted: 5, groupsCreated: 0 });
-  assert.deepEqual(chrome.ids(), [1, 2, 6, 7, 5, 4, 3]);
+  assert.deepEqual(chrome.ids(), [1, 2, 6, 7, 4, 5, 3]);
   assert.deepEqual(chrome.tabs().filter(tab => tab.groupId === 8).map(tab => tab.id), [6, 7]);
   assert.deepEqual(chrome.groups.get(8), { title: 'Manual', color: 'blue', collapsed: true });
   assert.ok(!chrome.calls.some(call => call.operation === 'group'));
@@ -147,7 +147,7 @@ test('hostname grouping excludes pinned/manual tabs, singletons, invalid/interna
   ]);
   chrome.tabs()[9].pendingUrl = 'https://zzz.com/loading';
   assert.deepEqual(await sortCurrentWindow('hostname', true, chrome.api, chrome.storage), { tabsSorted: 9, groupsCreated: 2 });
-  assert.deepEqual(chrome.ids(), [1, 8, 7, 4, 3, 6, 5, 2, 10, 9]);
+  assert.deepEqual(chrome.ids(), [1, 4, 3, 5, 2, 10, 9, 8, 7, 6]);
   assert.deepEqual(chrome.calls.filter(call => call.operation === 'group').map(call => call.ids), [[2, 5], [9, 10]]);
   assert.deepEqual(chrome.groups.get(7), { title: 'Manual', color: 'blue', collapsed: true });
   assert.equal(chrome.groups.get(100)?.title, '[🤖] example.com');
@@ -165,15 +165,85 @@ test('sorting without grouping uses natural title order and sorts inside intact 
     tab(3, 'Tab 2', 'https://aaa.com', 3), tab(4, 'Alpha', 'https://aaa.com'),
     tab(5, 'Beta', 'https://aaa.com'),
   ]);
-  chrome.api.tabGroups.query = async () => { throw new Error('Grouping is disabled'); };
-  chrome.storage.getItem = () => { throw new Error('Ownership must not be read'); };
+  chrome.storage.getItem = () => { throw new Error('Unmarked groups need no ownership reads'); };
   chrome.storage.setItem = () => { throw new Error('Ownership must not be written'); };
   await sortCurrentWindow('hostname', false, chrome.api, chrome.storage);
-  assert.deepEqual(chrome.ids(), [4, 5, 3, 2, 1]);
+  assert.deepEqual(chrome.ids(), [3, 2, 1, 4, 5]);
   assert.ok(!chrome.calls.some(call => call.operation === 'group'));
-  assert.ok(chrome.tabs().slice(2).every(tab => tab.groupId === 3));
+  assert.ok(chrome.tabs().slice(0, 3).every(tab => tab.groupId === 3));
   await sortCurrentWindow('title', false, chrome.api, chrome.storage);
-  assert.deepEqual(chrome.ids(), [4, 5, 3, 2, 1]);
+  assert.deepEqual(chrome.ids(), [3, 2, 1, 4, 5]);
+});
+
+test('protected groups precede recognized groups and ungrouped tabs in both modes, with grouping on or off', async () => {
+  for (const mode of ['title', 'hostname'] as const) {
+    for (const grouping of [false, true]) {
+      const chrome = browser([
+        tab(1, 'Pinned', undefined, -1, true), tab(2, 'Alpha', 'https://a.com'),
+        tab(3, 'Group 10 B', 'https://b2.com', 42), tab(4, 'Group 10 A', 'https://b2.com', 42),
+        tab(5, 'Manual Z 2', 'https://z.com', 7), tab(6, 'Manual Z 1', 'https://z.com', 7),
+        tab(7, 'Group 2 Tab 10', 'https://b1.com', 99), tab(8, 'Group 2 Tab 2', 'https://b1.com', 99),
+        tab(9, 'Manual Y', 'https://y.com', 8), tab(10, 'Beta', 'https://c.com'),
+      ], new Map([
+        ['hostname-group:b1.com', 'true'], ['hostname-group:b2.com', 'true'],
+        ['hostname-group-label:Friendly', '["b2.com"]'],
+      ]));
+      chrome.groups.get(42)!.title = '[🤖] Friendly';
+      chrome.groups.get(99)!.title = '[🤖] b1.com';
+      const metadata = structuredClone([...chrome.groups]);
+      for (let run = 0; run < 2; run++) {
+        assert.deepEqual(await sortCurrentWindow(mode, grouping, chrome.api, chrome.storage),
+          { tabsSorted: 9, groupsCreated: 0 });
+        assert.deepEqual(chrome.ids(), [1, 9, 6, 5, 8, 7, 4, 3, 2, 10]);
+        assert.deepEqual([...chrome.groups], metadata);
+        assert.ok(chrome.calls.every(call => call.operation === 'move' || call.operation === 'moveGroup'));
+      }
+      if (mode === 'title' || !grouping) assert.deepEqual(chrome.reads, [], 'Sorting alone does not read pages');
+    }
+  }
+});
+
+test('mixed, duplicate, renamed and unrecorded groups retain protected-group priority', async () => {
+  for (const mode of ['title', 'hostname'] as const) {
+    for (const issue of ['mixed', 'duplicate', 'renamed', 'unrecorded'] as const) {
+      const chrome = browser([
+        tab(1, 'Auto 2', 'https://aaa.com', 99), tab(2, 'Auto 1', 'https://aaa.com', 99),
+        tab(3, 'Protected 2', 'https://zzz.com', 42),
+        tab(4, 'Protected 1', issue === 'mixed' ? 'https://other.com' : 'https://zzz.com', 42),
+        ...(issue === 'duplicate' ? [tab(5, 'Protected 3', 'https://zzz.com', 43)] : []),
+        tab(8, 'A', 'https://a.com'),
+      ], new Map([
+        ['hostname-group:aaa.com', 'true'],
+        ...(issue === 'unrecorded' ? [] : [['hostname-group:zzz.com', 'true'] as [string, string]]),
+      ]));
+      chrome.groups.get(99)!.title = '[🤖] aaa.com';
+      chrome.groups.get(42)!.title = issue === 'renamed' ? 'My group' : '[🤖] zzz.com';
+      if (issue === 'duplicate') chrome.groups.get(43)!.title = '[🤖] zzz.com';
+      const metadata = structuredClone([...chrome.groups]);
+      await sortCurrentWindow(mode, false, chrome.api, chrome.storage);
+      assert.deepEqual(chrome.ids(), [4, 3, ...(issue === 'duplicate' ? [5] : []), 2, 1, 8]);
+      assert.deepEqual([...chrome.groups], metadata);
+      assert.deepEqual(chrome.reads, []);
+    }
+  }
+});
+
+test('group recognition failures stop before moving tabs even when grouping is off', async () => {
+  for (const mode of ['title', 'hostname'] as const) {
+    for (const failure of ['query', 'storage', 'label'] as const) {
+      const chrome = browser([
+        tab(1, 'Group B', undefined, 42), tab(2, 'Group A', undefined, 42), tab(3, 'Ungrouped'),
+      ], new Map([['hostname-group:example.com', 'true']]));
+      chrome.groups.get(42)!.title = '[🤖] example.com';
+      if (failure === 'query') chrome.api.tabGroups.query = async () => { throw new Error('Group lookup failed'); };
+      if (failure === 'storage') chrome.storage.getItem = () => { throw new Error('Storage failed'); };
+      if (failure === 'label') chrome.records.set('hostname-group-label:example.com', '{}');
+      await assert.rejects(sortCurrentWindow(mode, false, chrome.api, chrome.storage),
+        failure === 'query' ? /Group lookup failed/ : failure === 'storage' ? /Storage failed/ : /Invalid saved group label/);
+      assert.deepEqual(chrome.ids(), [1, 2, 3]);
+      assert.deepEqual(chrome.calls, []);
+    }
+  }
 });
 
 test('empty and all-pinned windows are no-ops; Chrome failures propagate', async () => {

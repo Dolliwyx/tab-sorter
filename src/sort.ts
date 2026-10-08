@@ -47,7 +47,7 @@ export function hostname(tab: Pick<chrome.tabs.Tab, 'url' | 'pendingUrl'>): stri
   }
 }
 
-function blocks(tabs: Tab[], mode: SortMode): Tab[][] {
+function blocks(tabs: Tab[], mode: SortMode, managedGroups: Set<number>): Tab[][] {
   const compareText = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }).compare;
   const compare = (a: Tab, b: Tab) =>
     (mode === 'hostname' ? compareText(hostname(a), hostname(b)) : 0) ||
@@ -70,8 +70,9 @@ function blocks(tabs: Tab[], mode: SortMode): Tab[][] {
     }
   }
 
+  const priority = (tab: Tab) => tab.groupId === -1 ? 2 : managedGroups.has(tab.groupId) ? 1 : 0;
   for (const block of result) block.sort(compare);
-  return result.sort((a, b) => compare(a[0], b[0]));
+  return result.sort((a, b) => priority(a[0]) - priority(b[0]) || compare(a[0], b[0]));
 }
 
 export async function sortCurrentWindow(
@@ -82,6 +83,25 @@ export async function sortCurrentWindow(
   let tabs = await query();
   let groupsCreated = 0;
 
+  const groups = tabs.some(tab => !tab.pinned && tab.groupId !== -1)
+    ? await api.tabGroups.query({ windowId: tabs[0].windowId }) : [];
+  const existing = new Map<string, number | null>();
+  // ponytail: fixed labels can be copied; use unique markers if strict provenance is needed.
+  for (const group of groups) {
+    if (!group.title?.startsWith(groupPrefix)) continue;
+    const label = group.title.slice(groupPrefix.length);
+    const hosts = [...new Set([label, ...labelHosts(storage, label)])]
+      .filter(host => storage.getItem(ownershipPrefix + host) === 'true');
+    const members = tabs.filter(tab => tab.groupId === group.id);
+    const eligible = hosts.filter(host => members.length > 0 && members.every(tab =>
+      !tab.pinned && tab.id !== undefined && hostname(tab) === host));
+    // A shared site name is safe only when members identify one exact hostname.
+    for (const host of eligible.length ? eligible : hosts) {
+      existing.set(host, existing.has(host) || !eligible.length ? null : group.id);
+    }
+  }
+  const managedGroups = new Set([...existing.values()].filter((id): id is number => id !== null));
+
   if (mode === 'hostname' && groupByHostname) {
     const candidates = new Map<string, [number, ...number[]]>();
     for (const tab of tabs) {
@@ -90,22 +110,6 @@ export async function sortCurrentWindow(
       const ids = candidates.get(host);
       if (ids) ids.push(tab.id);
       else candidates.set(host, [tab.id]);
-    }
-    const groups = tabs.some(tab => !tab.pinned) ? await api.tabGroups.query({ windowId: tabs[0].windowId }) : [];
-    const existing = new Map<string, number | null>();
-    // ponytail: fixed labels can be copied; use unique markers if strict provenance is needed.
-    for (const group of groups) {
-      if (!group.title?.startsWith(groupPrefix)) continue;
-      const label = group.title.slice(groupPrefix.length);
-      const hosts = [...new Set([label, ...labelHosts(storage, label)])]
-        .filter(host => storage.getItem(ownershipPrefix + host) === 'true');
-      const members = tabs.filter(tab => tab.groupId === group.id);
-      const eligible = hosts.filter(host => members.length > 0 && members.every(tab =>
-        !tab.pinned && tab.id !== undefined && hostname(tab) === host));
-      // A shared site name is safe only when members identify one exact hostname.
-      for (const host of eligible.length ? eligible : hosts) {
-        existing.set(host, existing.has(host) || !eligible.length ? null : group.id);
-      }
     }
     const recordLabel = (host: string, label: string) => {
       if (label === host) return;
@@ -132,6 +136,7 @@ export async function sortCurrentWindow(
         await api.tabGroups.update(createdId, { title: groupPrefix + name });
         recordLabel(host, name);
         storage.setItem(ownershipPrefix + host, 'true');
+        managedGroups.add(createdId);
         groupsCreated++;
       }
     }
@@ -143,7 +148,7 @@ export async function sortCurrentWindow(
   let index = tabs.filter(tab => tab.pinned).length;
 
   // Place each whole block at the next group boundary, then sort only inside it.
-  for (const block of blocks(movable, mode)) {
+  for (const block of blocks(movable, mode, managedGroups)) {
     if (block[0].groupId !== -1) {
       await api.tabGroups.move(block[0].groupId, { index });
     }
