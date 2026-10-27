@@ -22,6 +22,10 @@ form > label { display: block; margin-bottom: 8px; font-weight: 600; }
 select, button { width: 100%; min-height: 42px; font: inherit; border-radius: 6px; }
 select { padding: 8px 10px; color: inherit; background: light-dark(#fff, #233128); border: 1px solid var(--line); }
 .group-option { margin: 20px 0 24px; }
+.group-scope { margin-top: 12px; }
+.group-scope label { display: block; margin-bottom: 8px; font-weight: 600; }
+.group-scope:has(select:disabled) label { color: var(--muted); }
+select:disabled { color: var(--muted); cursor: default; }
 .checkbox-label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
 .checkbox-label:has(input:disabled) { color: var(--muted); cursor: default; }

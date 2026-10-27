@@ -21,8 +21,15 @@
         <div class="group-option">
           <label class="checkbox-label" for="group-hostname">
             <input id="group-hostname" type="checkbox" aria-describedby="group-hint" disabled />
-            <span>Group by hostname</span>
+            <span>Group tabs</span>
           </label>
+          <div class="group-scope">
+            <label for="group-scope">Group by</label>
+            <select id="group-scope" name="group-scope" aria-describedby="group-hint" disabled>
+              <option value="hostname">Exact hostname</option>
+              <option value="domain">Domain + subdomains</option>
+            </select>
+          </div>
           <p id="group-hint">Choose hostname sorting to group tabs.</p>
         </div>
         <button id="sort-button" type="submit">Sort tabs</button>

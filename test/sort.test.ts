@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { getDomain } from 'tldts';
 import { hostname, sortCurrentWindow } from '../src/sort.ts';
 
 function tab(id: number, title: string, url = 'https://example.com', groupId = -1, pinned = false): chrome.tabs.Tab {
@@ -116,7 +117,9 @@ function browser(initial: chrome.tabs.Tab[], records = new Map<string, string>()
       },
       async update(groupId: number, properties: { title: string }) {
         assert.ok(groups.has(groupId));
-        assert.ok(groupId >= 100 || records.get('hostname-group:' + hostname(tabs.find(tab => tab.groupId === groupId)!)) === 'true',
+        const host = hostname(tabs.find(tab => tab.groupId === groupId)!);
+        assert.ok(groupId >= 100 || records.get('hostname-group:' + host) === 'true' ||
+          records.get('domain-group:' + (getDomain(host, { allowPrivateDomains: true }) || host)) === 'true',
           'Only name a new group or a previously recorded hostname group');
         Object.assign(groups.get(groupId)!, properties);
         calls.push({ operation: 'nameGroup', ids: [groupId] });
@@ -541,6 +544,164 @@ test('metadata reads exclude pending/discarded tabs and do not run when grouping
   await sortCurrentWindow('hostname', false, chrome.api, chrome.storage);
   await sortCurrentWindow('title', true, chrome.api, chrome.storage);
   assert.deepEqual(chrome.reads, []);
+});
+
+test('domain grouping combines subdomains but respects public and private suffixes and preserves exclusions', async () => {
+  const chrome = browser([
+    tab(1, 'Pinned', 'https://example.com', -1, true),
+    tab(2, 'Root', 'https://example.com'), tab(3, 'Docs', 'http://docs.example.com:8080/a'),
+    tab(4, 'Shop', 'https://shop.example.co.uk'), tab(5, 'UK root', 'https://example.co.uk'),
+    tab(6, 'Other UK', 'https://other.co.uk'),
+    tab(7, 'Alice', 'https://alice.github.io'), tab(8, 'Alice docs', 'https://docs.alice.github.io'),
+    tab(9, 'Bob', 'https://bob.github.io'), tab(10, 'Internal', 'chrome://settings'),
+    tab(11, 'File', 'file:///tmp/example.com'), tab(12, 'Invalid', 'not a URL'),
+    tab(13, 'Manual', 'https://www.example.com', 7),
+    tab(14, 'Pending', 'chrome://newtab'),
+  ]);
+  chrome.tabs().find(tab => tab.id === 14)!.pendingUrl = 'https://www.example.com/loading';
+  const manual = { ...chrome.groups.get(7)! };
+  assert.deepEqual(await sortCurrentWindow('hostname', true, chrome.api, chrome.storage, 'domain'),
+    { tabsSorted: 13, groupsCreated: 3 });
+  assert.deepEqual(chrome.calls.filter(call => call.operation === 'group').map(call => call.ids), [[2, 3, 14], [4, 5], [7, 8]]);
+  assert.deepEqual(chrome.groups.get(7), manual);
+  assert.equal(chrome.groups.get(100)?.title, '[🤖] example.com');
+  assert.equal(chrome.groups.get(101)?.title, '[🤖] example.co.uk');
+  assert.equal(chrome.groups.get(102)?.title, '[🤖] alice.github.io');
+  for (const id of [1, 6, 9, 10, 11, 12]) assert.equal(chrome.tabs().find(tab => tab.id === id)?.groupId, -1);
+  assert.equal(chrome.tabs()[0].id, 1);
+  assert.deepEqual(chrome.tabs().filter(tab => tab.groupId === 100).map(tab => tab.id), [3, 2, 14],
+    'Members still sort by exact hostname, not by domain or title alone');
+  const before = chrome.ids();
+  await sortCurrentWindow('hostname', true, chrome.api, chrome.storage, 'domain');
+  assert.deepEqual(chrome.ids(), before);
+  assert.equal(chrome.calls.filter(call => call.operation === 'group').length, 3);
+});
+
+test('domain grouping falls back to exact hosts for IP addresses and localhost', async () => {
+  const chrome = browser([
+    tab(1, 'Local A', 'http://localhost/a'), tab(2, 'Local B', 'http://localhost/b'),
+    tab(3, 'IP A', 'http://192.168.1.1/a'), tab(4, 'IP B', 'http://192.168.1.1/b'),
+    tab(5, 'Other IP', 'http://192.168.1.2'),
+    tab(6, 'IPv6 A', 'http://[::1]/a'), tab(7, 'IPv6 B', 'http://[::1]/b'),
+  ]);
+  await sortCurrentWindow('hostname', true, chrome.api, chrome.storage, 'domain');
+  assert.deepEqual(chrome.calls.filter(call => call.operation === 'group').map(call => call.ids), [[1, 2], [3, 4], [6, 7]]);
+  assert.equal(chrome.tabs().find(tab => tab.id === 5)?.groupId, -1);
+});
+
+test('domain labels use subdomain metadata but reject metadata from a navigated tab', async () => {
+  for (const redirected of [false, true]) {
+    const chrome = browser([tab(1, 'Docs', 'https://docs.example.com'), tab(2, 'Root', 'https://example.com')]);
+    chrome.metadata.set(1, { og: 'Example', host: redirected ? 'other.example.com' : 'docs.example.com' });
+    await sortCurrentWindow('hostname', true, chrome.api, chrome.storage, 'domain');
+    assert.equal(chrome.groups.get(100)?.title, '[🤖] ' + (redirected ? 'example.com' : 'Example'));
+  }
+});
+
+test('domain grouping expands one legacy group and recognizes it after restored IDs and renaming', async () => {
+  const chrome = browser([
+    tab(1, 'Docs', 'https://docs.example.com', 42), tab(2, 'Root', 'https://example.com'),
+  ], new Map([['hostname-group:docs.example.com', 'true']]));
+  chrome.groups.get(42)!.title = '[🤖] docs.example.com';
+  chrome.metadata.set(1, { og: 'Example' });
+  await sortCurrentWindow('hostname', true, chrome.api, chrome.storage, 'domain');
+  assert.ok(chrome.tabs().every(tab => tab.groupId === 42));
+  assert.deepEqual(chrome.groups.get(42), { title: '[🤖] Example', color: 'blue', collapsed: true });
+  const restored = browser([
+    ...chrome.tabs().map(tab => ({ ...tab, groupId: 99 })), tab(3, 'Shop', 'https://shop.example.com'),
+  ], new Map(chrome.records));
+  restored.groups.set(99, { ...chrome.groups.get(42)! });
+  await sortCurrentWindow('hostname', true, restored.api, restored.storage, 'domain');
+  assert.ok(restored.tabs().every(tab => tab.groupId === 99));
+  assert.deepEqual(restored.groups.get(99), chrome.groups.get(42));
+});
+
+test('domain grouping never merges competing legacy/domain groups or expands mixed groups', async () => {
+  for (const issue of ['legacy duplicates', 'domain and legacy', 'mixed'] as const) {
+    const chrome = browser([
+      tab(1, 'Docs', 'https://docs.example.com', 42),
+      tab(2, 'Member', issue === 'mixed' ? 'https://other.com' : 'https://example.com', issue === 'mixed' ? 42 : 43),
+      tab(3, 'Arrival A', 'https://shop.example.com'), tab(4, 'Arrival B', 'https://example.com'),
+    ], new Map([
+      ['hostname-group:docs.example.com', 'true'], ['hostname-group:example.com', 'true'],
+      ...(issue === 'domain and legacy' ? [['domain-group:example.com', 'true'] as [string, string]] : []),
+    ]));
+    chrome.groups.get(42)!.title = '[🤖] docs.example.com';
+    if (issue !== 'mixed') chrome.groups.get(43)!.title = '[🤖] example.com';
+    const before = structuredClone([...chrome.groups]);
+    await sortCurrentWindow('hostname', true, chrome.api, chrome.storage, 'domain');
+    assert.deepEqual([...chrome.groups], before);
+    assert.ok(!chrome.calls.some(call => call.operation === 'group' || call.operation === 'expandGroup'));
+    for (const id of [3, 4]) assert.equal(chrome.tabs().find(tab => tab.id === id)?.groupId, -1);
+  }
+});
+
+test('duplicate domain groups stay protected even when legacy hostname ownership is still recorded', async () => {
+  for (const scope of ['hostname', 'domain'] as const) {
+    const chrome = browser([
+      tab(1, 'A', 'https://example.com', 42), tab(2, 'B', 'https://example.com', 43),
+      tab(3, 'Z', 'https://a.com', 99), tab(4, 'Arrival', 'https://shop.example.com'),
+    ], new Map([
+      ['hostname-group:example.com', 'true'], ['domain-group:example.com', 'true'], ['hostname-group:a.com', 'true'],
+    ]));
+    chrome.groups.get(42)!.title = '[🤖] example.com';
+    chrome.groups.get(43)!.title = '[🤖] example.com';
+    chrome.groups.get(99)!.title = '[🤖] a.com';
+    await sortCurrentWindow('hostname', true, chrome.api, chrome.storage, scope);
+    assert.deepEqual(chrome.ids(), [1, 2, 3, 4], 'Ambiguous domain groups precede recognized groups');
+    assert.ok(!chrome.calls.some(call => call.operation === 'group' || call.operation === 'expandGroup'));
+  }
+});
+
+test('shared domain site names do not combine independently hosted sites', async () => {
+  const original = browser([
+    tab(1, 'Alice', 'https://alice.github.io'), tab(2, 'Alice docs', 'https://docs.alice.github.io'),
+    tab(3, 'Bob', 'https://bob.github.io'), tab(4, 'Bob docs', 'https://docs.bob.github.io'),
+  ]);
+  for (const id of [1, 3]) original.metadata.set(id, { og: 'Hosted site' });
+  await sortCurrentWindow('hostname', true, original.api, original.storage, 'domain');
+  const restored = browser([
+    ...original.tabs(), tab(5, 'Alice shop', 'https://shop.alice.github.io'), tab(6, 'Bob shop', 'https://shop.bob.github.io'),
+  ], new Map(original.records));
+  for (const id of [100, 101]) restored.groups.set(id, { ...original.groups.get(id)! });
+  await sortCurrentWindow('hostname', true, restored.api, restored.storage, 'domain');
+  assert.equal(restored.tabs().find(tab => tab.id === 5)?.groupId, 100);
+  assert.equal(restored.tabs().find(tab => tab.id === 6)?.groupId, 101);
+  for (const id of [100, 101]) assert.equal(restored.groups.get(id)?.title, '[🤖] Hosted site');
+});
+
+test('switching to exact grouping preserves domain groups and does not add different-host arrivals', async () => {
+  const original = browser([tab(1, 'Docs', 'https://docs.example.com'), tab(2, 'Root', 'https://example.com')]);
+  await sortCurrentWindow('hostname', true, original.api, original.storage, 'domain');
+  const chrome = browser([...original.tabs(), tab(3, 'Shop', 'https://shop.example.com')], new Map(original.records));
+  chrome.groups.set(100, { ...original.groups.get(100)! });
+  await sortCurrentWindow('hostname', true, chrome.api, chrome.storage);
+  assert.equal(chrome.tabs().find(tab => tab.id === 3)?.groupId, -1);
+  assert.deepEqual(chrome.tabs().filter(tab => tab.groupId === 100).map(tab => tab.id), [1, 2]);
+  assert.deepEqual(chrome.groups.get(100), original.groups.get(100));
+  await sortCurrentWindow('hostname', true, chrome.api, chrome.storage, 'domain');
+  assert.ok(chrome.tabs().every(tab => tab.groupId === 100));
+});
+
+test('domain grouping is inactive for title sorting or when grouping is disabled', async () => {
+  for (const mode of ['title', 'hostname'] as const) {
+    const chrome = browser([tab(1, 'Zulu', 'https://example.com'), tab(2, 'Alpha', 'https://docs.example.com')]);
+    await sortCurrentWindow(mode, mode === 'title', chrome.api, chrome.storage, 'domain');
+    assert.ok(chrome.tabs().every(tab => tab.groupId === -1));
+    assert.deepEqual(chrome.reads, []);
+    assert.equal(chrome.records.size, 0);
+  }
+});
+
+test('storage failure prevents cross-subdomain expansion of a legacy group', async () => {
+  const chrome = browser([
+    tab(1, 'Docs', 'https://docs.example.com', 42), tab(2, 'Root', 'https://example.com'),
+  ], new Map([['hostname-group:docs.example.com', 'true']]));
+  chrome.groups.get(42)!.title = '[🤖] docs.example.com';
+  chrome.storage.setItem = () => { throw new Error('Storage failed'); };
+  await assert.rejects(sortCurrentWindow('hostname', true, chrome.api, chrome.storage, 'domain'), /Storage failed/);
+  assert.equal(chrome.tabs().find(tab => tab.id === 2)?.groupId, -1);
+  assert.deepEqual(chrome.calls, []);
 });
 
 test('failed label persistence leaves existing names intact and failed naming does not establish ownership', async () => {

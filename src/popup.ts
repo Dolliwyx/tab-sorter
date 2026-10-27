@@ -1,9 +1,10 @@
 import { sortCurrentWindow } from './sort.ts';
-import type { SortMode } from './sort.ts';
+import type { GroupScope, SortMode } from './sort.ts';
 
 const form = document.querySelector<HTMLFormElement>('#sort-form')!;
 const mode = document.querySelector<HTMLSelectElement>('#sort-mode')!;
 const grouping = document.querySelector<HTMLInputElement>('#group-hostname')!;
+const scope = document.querySelector<HTMLSelectElement>('#group-scope')!;
 const button = document.querySelector<HTMLButtonElement>('#sort-button')!;
 const status = document.querySelector<HTMLParagraphElement>('#status')!;
 const hint = document.querySelector<HTMLParagraphElement>('#group-hint')!;
@@ -11,12 +12,16 @@ const available = typeof chrome !== 'undefined' && !!chrome.tabs?.query;
 
 mode.value = localStorage.getItem('sort-mode') === 'hostname' ? 'hostname' : 'title';
 grouping.checked = localStorage.getItem('group-hostname') === 'true';
+scope.value = localStorage.getItem('group-scope') === 'domain' ? 'domain' : 'hostname';
 
 function updateGrouping() {
   grouping.disabled = mode.value !== 'hostname';
+  scope.disabled = grouping.disabled || !grouping.checked;
   hint.textContent = grouping.disabled
     ? 'Choose hostname sorting to group tabs.'
-    : 'Create groups for 2+ tabs; add matches to Tab Sorter groups.';
+    : scope.value === 'domain'
+      ? 'Combine subdomains. Create groups for 2+ tabs; add matches to Tab Sorter groups.'
+      : 'Create groups for 2+ tabs; add matches to Tab Sorter groups.';
 }
 
 mode.addEventListener('change', () => {
@@ -25,6 +30,11 @@ mode.addEventListener('change', () => {
 });
 grouping.addEventListener('change', () => {
   localStorage.setItem('group-hostname', String(grouping.checked));
+  updateGrouping();
+});
+scope.addEventListener('change', () => {
+  localStorage.setItem('group-scope', scope.value);
+  updateGrouping();
 });
 updateGrouping();
 
@@ -38,16 +48,18 @@ form.addEventListener('submit', async event => {
   if (!available || button.disabled) return;
   const sortMode: SortMode = mode.value === 'hostname' ? 'hostname' : 'title';
   const groupByHostname = sortMode === 'hostname' && grouping.checked;
+  const groupScope: GroupScope = scope.value === 'domain' ? 'domain' : 'hostname';
   button.disabled = true;
   mode.disabled = true;
   grouping.disabled = true;
+  scope.disabled = true;
   button.textContent = 'Sorting…';
   status.textContent = '';
   delete status.dataset.error;
 
   try {
     // ponytail: popup lifetime; use a service worker if sorting must survive closing it.
-    const { tabsSorted, groupsCreated } = await sortCurrentWindow(sortMode, groupByHostname);
+    const { tabsSorted, groupsCreated } = await sortCurrentWindow(sortMode, groupByHostname, chrome, localStorage, groupScope);
     status.textContent = tabsSorted === 0
       ? 'No unpinned tabs to sort.'
       : `Sorted ${tabsSorted} ${tabsSorted === 1 ? 'tab' : 'tabs'}.`;
