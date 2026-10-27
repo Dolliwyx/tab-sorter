@@ -103,8 +103,8 @@ Select and action use a 6px radius. The select and footer separator use 1px bord
 
 ## Components
 
-- **Select:** native Title/Hostname options, inherited text, control fill, line border; no custom hover or active treatment.
-- **Checkbox:** native accent-colored input with a body-weight label. Disabled labels become muted with default cursor; the browser owns the disabled input appearance. Hint uses supporting type. Title sorting disables grouping; hostname sorting makes it available.
+- **Select:** native Title/Hostname sort options and Exact hostname/Domain + subdomains grouping options, inherited text, control fill, line border; no custom hover or active treatment.
+- **Checkbox:** native accent-colored input with a body-weight label. Disabled labels become muted with default cursor; the browser owns the disabled input appearance. Hint uses supporting type. Title sorting disables grouping; hostname sorting makes it available. The Group by label and native select sit 12px below the checkbox, with an 8px label gap; the select is disabled when grouping is off or unavailable. Both choices are remembered.
 - **Action:** accent fill, on-accent text, no border. Enabled hover uses accent-hover; disabled state has default cursor and opacity 0.65. No custom active state.
 - **Focus and selection:** every focus-visible element gets a 2px solid accent outline, offset 3px. Selection uses accent and on-accent.
 - **Status:** polite, atomic live region; empty status is hidden. Nonempty status has 12px top margin and wraps anywhere; error status uses error color, normal status inherits text.

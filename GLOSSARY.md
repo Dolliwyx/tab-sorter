@@ -1,6 +1,6 @@
 # Tab Sorter
 
-Tab Sorter organizes tabs in one Chrome window while preserving pinned tabs and existing group members. Its own hostname groups may receive additional matching tabs.
+Tab Sorter organizes tabs in one Chrome window while preserving pinned tabs and existing group members. Its own hostname and domain groups may receive additional matching tabs.
 
 ## Language
 
@@ -28,20 +28,28 @@ _Avoid_: Domain, site, origin
 
 **Hostname group**:
 A group recognized as Tab Sorter's own by its ownership label and a hostname for which Tab Sorter has previously created a group. New hostname groups start with at least two unpinned, ungrouped tabs sharing that exact hostname.
-_Avoid_: Domain group
+
+**Registrable domain**:
+The website boundary used by Domain + subdomains grouping: a public or private suffix plus its preceding label. `docs.example.co.uk` belongs to `example.co.uk`, while `alice.github.io` and `bob.github.io` are separate boundaries.
+
+**Grouping scope**:
+The choice between exact-hostname matching and registrable-domain matching, independent of the sort order. Hosts without a registrable domain retain exact-hostname matching.
+
+**Domain group**:
+A recognized Tab Sorter group whose members share a registrable domain, potentially across different subdomains. Existing domain groups stay together when grouping scope changes.
 
 **Site name**:
-A website's human-readable name used in a hostname group's title, with the hostname as a fallback. Different hostnames may share a site name without belonging to the same group.
+A website's human-readable name used in a Tab Sorter group's title, with its hostname or domain as a fallback. Different grouping keys may share a site name without belonging to the same group.
 
 **Ownership label**:
-The fixed `[🤖]` prefix before a recorded site name or hostname in a group's title, indicating Tab Sorter ownership. It is an ownership convention, not proof of who created a group; removing it relinquishes recognition.
+The fixed `[🤖]` prefix before a recorded site name, hostname, or domain in a group's title, indicating Tab Sorter ownership. It is an ownership convention, not proof of who created a group; removing it relinquishes recognition.
 
 **Protected group**:
-A tab group not safely recognized as Tab Sorter's own, including groups with ambiguous ownership or mismatched contents. Its membership is preserved rather than expanded by hostname grouping.
+A tab group not safely recognized as Tab Sorter's own, including groups with ambiguous ownership or mismatched contents. Its membership is preserved rather than expanded by hostname or domain grouping.
 _Avoid_: Manual group (when excluding groups created by other tools)
 
 **Group expansion**:
-The addition of matching unpinned, ungrouped tabs to an existing hostname group while retaining its identity and existing members. A single matching tab is sufficient, but expansion is paused when existing members do not identify one recorded hostname or multiple groups in the current window match that hostname.
+The addition of matching unpinned, ungrouped tabs to an existing recognized Tab Sorter group while retaining its identity and existing members. A single matching tab is sufficient, but expansion is paused when existing members do not identify one recorded hostname/domain or multiple groups in the current window match the selected grouping key.
 _Avoid_: Group creation, group merging
 
 **Sort block**:
@@ -53,10 +61,10 @@ Ascending title order that ignores case and treats numbers numerically, so `Tab 
 _Avoid_: Lexicographic order
 
 **Title sorting**:
-An ordering with protected groups first, recognized hostname groups second, and ungrouped tabs last; sort blocks within each section use their first tab after their members are placed in natural title order. It is not necessarily a globally alphabetical ordering of individual tabs.
+An ordering with protected groups first, recognized Tab Sorter groups second, and ungrouped tabs last; sort blocks within each section use their first tab after their members are placed in natural title order. It is not necessarily a globally alphabetical ordering of individual tabs.
 
 **Hostname sorting**:
-An ordering with protected groups first, recognized hostname groups second, and ungrouped tabs last; sort blocks within each section use their first tab after their members are ordered by hostname, then title. Tabs without an HTTP or HTTPS hostname precede website tabs within the same section.
+An ordering with protected groups first, recognized Tab Sorter groups second, and ungrouped tabs last; sort blocks within each section use their first tab after their members are ordered by hostname, then title. Tabs without an HTTP or HTTPS hostname precede website tabs within the same section.
 _Avoid_: Domain sorting
 
 **Hostname grouping**:
