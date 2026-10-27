@@ -636,6 +636,37 @@ test('domain grouping never merges competing legacy/domain groups or expands mix
   }
 });
 
+test('competing hostname and domain groups receive protected priority in domain scope', async () => {
+  for (const mode of ['title', 'hostname'] as const) {
+    for (const grouping of [false, true]) {
+      for (const domainGroup of [false, true]) {
+        const chrome = browser([
+          tab(1, 'Docs', 'https://docs.example.com', 42),
+          tab(2, 'Root', 'https://example.com', 43),
+          tab(3, 'Auto', 'https://a.com', 99),
+          tab(4, 'Arrival', 'https://shop.example.com'),
+        ], new Map([
+          ['hostname-group:docs.example.com', 'true'], ['hostname-group:example.com', 'true'],
+          ['hostname-group:a.com', 'true'],
+          ...(domainGroup ? [['domain-group:example.com', 'true'] as [string, string]] : []),
+        ]));
+        chrome.groups.get(42)!.title = '[🤖] docs.example.com';
+        chrome.groups.get(43)!.title = '[🤖] example.com';
+        chrome.groups.get(99)!.title = '[🤖] a.com';
+        const metadata = structuredClone([...chrome.groups]);
+
+        await sortCurrentWindow(mode, grouping, chrome.api, chrome.storage, 'domain');
+
+        assert.deepEqual(chrome.ids(), [1, 2, 3, 4], 'Competing groups precede recognized groups');
+        assert.deepEqual([...chrome.groups], metadata);
+        assert.equal(chrome.tabs().find(tab => tab.id === 4)!.groupId, -1);
+        assert.ok(chrome.reads.every(id => id === 3), 'Only the uncontested group may have metadata read');
+        assert.ok(chrome.calls.every(call => call.operation === 'move' || call.operation === 'moveGroup'));
+      }
+    }
+  }
+});
+
 test('duplicate domain groups stay protected even when legacy hostname ownership is still recorded', async () => {
   for (const scope of ['hostname', 'domain'] as const) {
     const chrome = browser([

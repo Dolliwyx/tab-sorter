@@ -112,8 +112,6 @@ export async function sortCurrentWindow(
       }
     }
   }
-  const managedGroups = new Set([...recognized.hostname.values(), ...recognized.domain.values()]
-    .filter((id): id is number => id !== null));
   const existing = new Map(recognized[groupScope]);
   if (groupScope === 'domain') {
     // Reuse one legacy hostname group, but never merge competing groups.
@@ -122,6 +120,11 @@ export async function sortCurrentWindow(
       existing.set(domain, existing.has(domain) && existing.get(domain) !== id ? null : id);
     }
   }
+
+  const managedGroups = new Set([
+    ...existing.values(),
+    ...(groupScope === 'hostname' ? recognized.domain.values() : []),
+  ].filter((id): id is number => id !== null));
 
   if (mode === 'hostname' && groupByHostname) {
     const candidates = new Map<string, [number, ...number[]]>();
