@@ -15,6 +15,9 @@ pnpm build
 2. Click **Load unpacked** and choose this project's `dist/` directory.
 3. Pin **Tab Sorter** in Chrome's extensions menu and open its toolbar popup.
 4. Choose **Title** or **Hostname**, optionally enable **Group tabs** and choose **Exact hostname** or **Domain + subdomains**, then click **Sort tabs**.
+5. Press **Alt+Shift+S** (macOS: **Option+Shift+S**) to immediately sort/group the active browser window using your saved settings, even with the popup closed. Change or assign the shortcut at `chrome://extensions/shortcuts` if Chrome, your OS, or another extension already uses it.
+
+After upgrading from a version that used `localStorage`, open the popup once to migrate your saved settings and group ownership records. Until then, the shortcut uses default settings (title sorting, no new grouping) and treats old groups as protected. Migration leaves the old data intact and does not overwrite values already in extension storage.
 
 ## Behavior
 
@@ -26,8 +29,9 @@ pnpm build
 - Switching grouping scope never splits or merges existing groups. Domain grouping can expand one recognized legacy hostname group; if multiple groups compete for a domain, arrivals remain ungrouped. Domain groups remain recognized for sorting in either setting, but are not expanded by exact-hostname grouping.
 - Ownership uses the `[🤖] ` title prefix plus locally recorded hostname/domain/label associations, not Chrome's session-scoped group IDs. Matching site names do not merge different grouping keys. Records survive browser restarts and extension reloads while extension data is retained. Previously recorded hostname labels remain recognized and receive site names on the next hostname-grouping run, even without new arrivals. An existing friendly name is kept when metadata cannot be read. Older unmarked groups are not adopted; removing the label or clearing extension data removes recognition. A user-created group with the same recorded hostname and label is indistinguishable from a generated group.
 - Expansion and renaming pause if a recognized group's members do not identify one recorded hostname/domain, or multiple groups in the current window match the same grouping key. New matching tabs remain ungrouped until the ambiguity or mismatched contents are resolved; existing members and group metadata stay unchanged.
-- The popup remembers your choices and hostname/domain/label associations locally. Nothing is uploaded; metadata is read from open tabs only when grouping. Pending, discarded, and frozen tabs are not read. There are no persistent content scripts, network lookups, background polling, or automatic tab-change listeners.
-- Keep the popup open until sorting finishes, and avoid dragging, closing, or pinning tabs during sorting. Chrome may reject operations if tabs change mid-sort; the popup reports a failure and any already-completed changes remain. Sorting does not close tabs or navigate pages.
+- The extension remembers your choices and hostname/domain/label associations in `chrome.storage.local`. Nothing is uploaded; metadata is read from open tabs only when grouping. Pending, discarded, and frozen tabs are not read. There are no persistent content scripts, network lookups, background polling, or automatic tab-change listeners.
+- Sorting runs in a background service worker, so the popup can close after starting a sort. A run stays in its original window even if focus changes. Repeated shortcuts during a run are ignored; the popup reports an error if another sort is already running.
+- Avoid dragging, closing, or pinning tabs during sorting. Chrome may reject operations if tabs change mid-sort; the popup reports a failure and any already-completed changes remain. A failed shortcut run shows a **!** toolbar badge; a successful shortcut run clears it. Sorting does not close tabs or navigate pages.
 
 ## Development
 
@@ -38,6 +42,6 @@ pnpm watch   # Rebuild dist/ on changes; reload the extension in Chrome
 pnpm dev     # Browser preview only: Chrome APIs are unavailable on localhost
 ```
 
-Vite copies `public/manifest.json` into `dist/` and bundles `index.html` with its TypeScript and CSS. No extension build plugin or service worker is needed for on-demand actions.
+Vite copies `public/manifest.json` into `dist/` and bundles the popup (`index.html`) and background service worker (`background.js`). No extension build plugin is needed.
 
-Permissions: `tabs` reads tab titles and URLs; `tabGroups` allows reading, moving, and naming groups. `scripting` and required HTTP(S) host permissions allow on-demand site-name metadata reads from open tabs. Chrome may ask you to approve the additional website access after reloading or updating the extension. Ownership records use extension-local `localStorage`; no storage permission is needed.
+Permissions: `tabs` reads tab titles and URLs; `tabGroups` allows reading, moving, and naming groups. `scripting` and required HTTP(S) host permissions allow on-demand site-name metadata reads from open tabs. Chrome may ask you to approve the additional website access after reloading or updating the extension. The `storage` permission lets the popup and service worker share locally saved settings and ownership records.

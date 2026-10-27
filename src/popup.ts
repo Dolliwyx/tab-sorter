@@ -1,5 +1,4 @@
-import { sortCurrentWindow } from './sort.ts';
-import type { GroupScope, SortMode } from './sort.ts';
+import { extensionStorage, migrateStorage } from './storage.ts';
 
 const form = document.querySelector<HTMLFormElement>('#sort-form')!;
 const mode = document.querySelector<HTMLSelectElement>('#sort-mode')!;
@@ -10,9 +9,31 @@ const status = document.querySelector<HTMLParagraphElement>('#status')!;
 const hint = document.querySelector<HTMLParagraphElement>('#group-hint')!;
 const available = typeof chrome !== 'undefined' && !!chrome.tabs?.query;
 
-mode.value = localStorage.getItem('sort-mode') === 'hostname' ? 'hostname' : 'title';
-grouping.checked = localStorage.getItem('group-hostname') === 'true';
-scope.value = localStorage.getItem('group-scope') === 'domain' ? 'domain' : 'hostname';
+const storage = available ? extensionStorage() : localStorage;
+let saving = Promise.resolve();
+let saveError: unknown;
+
+function save(key: string, value: string) {
+  // Start the write before the popup can close; submission waits for all writes.
+  saving = Promise.all([saving, storage.setItem(key, value)]).then(() => {}).catch(error => {
+    saveError = error;
+    status.dataset.error = 'true';
+    status.textContent = 'Could not save settings. Reopen the popup and try again.';
+    button.disabled = true;
+  });
+}
+
+async function initialize() {
+  button.disabled = true;
+  mode.disabled = grouping.disabled = scope.disabled = true;
+  if (available) await migrateStorage(localStorage);
+  mode.value = await storage.getItem('sort-mode') === 'hostname' ? 'hostname' : 'title';
+  grouping.checked = await storage.getItem('group-hostname') === 'true';
+  scope.value = await storage.getItem('group-scope') === 'domain' ? 'domain' : 'hostname';
+  mode.disabled = false;
+  button.disabled = !available;
+  updateGrouping();
+}
 
 function updateGrouping() {
   grouping.disabled = mode.value !== 'hostname';
@@ -25,18 +46,22 @@ function updateGrouping() {
 }
 
 mode.addEventListener('change', () => {
-  localStorage.setItem('sort-mode', mode.value);
+  save('sort-mode', mode.value);
   updateGrouping();
 });
 grouping.addEventListener('change', () => {
-  localStorage.setItem('group-hostname', String(grouping.checked));
+  save('group-hostname', String(grouping.checked));
   updateGrouping();
 });
 scope.addEventListener('change', () => {
-  localStorage.setItem('group-scope', scope.value);
+  save('group-scope', scope.value);
   updateGrouping();
 });
 updateGrouping();
+void initialize().catch(() => {
+  status.dataset.error = 'true';
+  status.textContent = 'Could not load saved settings. Reopen the popup and try again.';
+});
 
 if (!available) {
   button.disabled = true;
@@ -46,9 +71,6 @@ if (!available) {
 form.addEventListener('submit', async event => {
   event.preventDefault();
   if (!available || button.disabled) return;
-  const sortMode: SortMode = mode.value === 'hostname' ? 'hostname' : 'title';
-  const groupByHostname = sortMode === 'hostname' && grouping.checked;
-  const groupScope: GroupScope = scope.value === 'domain' ? 'domain' : 'hostname';
   button.disabled = true;
   mode.disabled = true;
   grouping.disabled = true;
@@ -58,8 +80,12 @@ form.addEventListener('submit', async event => {
   delete status.dataset.error;
 
   try {
-    // ponytail: popup lifetime; use a service worker if sorting must survive closing it.
-    const { tabsSorted, groupsCreated } = await sortCurrentWindow(sortMode, groupByHostname, chrome, localStorage, groupScope);
+    await saving;
+    if (saveError) throw saveError;
+    const { id: windowId } = await chrome.windows.getCurrent();
+    const response = await chrome.runtime.sendMessage({ type: 'sort-tabs', windowId });
+    if (response.error) throw new Error(response.error);
+    const { tabsSorted, groupsCreated } = response.result;
     status.textContent = tabsSorted === 0
       ? 'No unpinned tabs to sort.'
       : `Sorted ${tabsSorted} ${tabsSorted === 1 ? 'tab' : 'tabs'}.`;
@@ -69,7 +95,7 @@ form.addEventListener('submit', async event => {
     const message = error instanceof Error ? error.message : 'Chrome could not finish sorting.';
     status.textContent = `Sorting stopped; some tabs may already have moved. ${message} Try again when tabs stop changing.`;
   } finally {
-    button.disabled = false;
+    button.disabled = !!saveError;
     mode.disabled = false;
     button.textContent = 'Sort tabs';
     updateGrouping();
