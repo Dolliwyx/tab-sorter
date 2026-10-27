@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { sortCurrentWindow } from '../src/sort.ts';
+import { extensionStorage } from '../src/storage.ts';
 
 class Control {
   value = '';
@@ -38,6 +40,24 @@ test('popup remembers grouping scope, gates controls, submits the choice and rec
         document: { configurable: true, value: { querySelector: (selector: string) => elements.get(selector.slice(1)) } },
         localStorage: { configurable: true, value: storage },
         chrome: { configurable: true, value: {
+          storage: { local: {
+            get: async (key: string | null) => key === null ? Object.fromEntries(records) : { [key]: records.get(key) },
+            set: async (values: Record<string, string>) => { for (const [key, value] of Object.entries(values)) records.set(key, value); },
+          } },
+          windows: { getCurrent: async () => ({ id: 1 }) },
+          runtime: { sendMessage: async (message: { type: string; windowId: number }) => {
+            assert.deepEqual(message, { type: 'sort-tabs', windowId: 1 });
+            const storage = extensionStorage();
+            try {
+              return { result: await sortCurrentWindow(
+                records.get('sort-mode') === 'hostname' ? 'hostname' : 'title',
+                records.get('group-hostname') === 'true', chrome, storage,
+                records.get('group-scope') === 'domain' ? 'domain' : 'hostname',
+              ) };
+            } catch (error) {
+              return { error: (error as Error).message };
+            }
+          } },
           tabs: {
             query: () => query(),
             group: async () => { groupsCreated++; return 100; },
@@ -50,6 +70,7 @@ test('popup remembers grouping scope, gates controls, submits the choice and rec
       const module = new URL('../src/popup.ts', import.meta.url);
       module.searchParams.set('case', String(saved));
       await import(module.href);
+      await new Promise(resolve => setImmediate(resolve));
       const mode = elements.get('sort-mode')!;
       const grouping = elements.get('group-hostname')!;
       const scope = elements.get('group-scope')!;
@@ -86,6 +107,7 @@ test('popup remembers grouping scope, gates controls, submits the choice and rec
       query = () => new Promise((_, reject) => { rejectQuery = reject; });
       const submission = form.trigger('submit');
       assert.ok([mode, grouping, scope, button].every(control => control.disabled));
+      await new Promise(resolve => setImmediate(resolve));
       rejectQuery(new Error('Fixture failure'));
       await submission;
       assert.equal(status.dataset.error, 'true');

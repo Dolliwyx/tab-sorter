@@ -2,6 +2,10 @@ import { getDomain } from 'tldts';
 
 export type SortMode = 'title' | 'hostname';
 export type GroupScope = 'hostname' | 'domain';
+export interface SortStorage {
+  getItem(key: string): string | null | Promise<string | null>;
+  setItem(key: string, value: string): void | Promise<void>;
+}
 type Tab = chrome.tabs.Tab & { id: number };
 const groupPrefix = '[🤖] ';
 
@@ -9,8 +13,8 @@ function groupingKey(host: string, scope: GroupScope): string {
   return scope === 'domain' ? getDomain(host, { allowPrivateDomains: true }) || host : host;
 }
 
-function labelHosts(storage: Pick<Storage, 'getItem'>, label: string, scope: GroupScope): string[] {
-  const value: unknown = JSON.parse(storage.getItem(`${scope}-group-label:` + label) || '[]');
+async function labelHosts(storage: SortStorage, label: string, scope: GroupScope): Promise<string[]> {
+  const value: unknown = JSON.parse(await storage.getItem(`${scope}-group-label:` + label) || '[]');
   if (!Array.isArray(value) || !value.every(host => typeof host === 'string')) {
     throw new Error('Invalid saved group label.');
   }
@@ -83,10 +87,11 @@ function blocks(tabs: Tab[], mode: SortMode, managedGroups: Set<number>): Tab[][
 
 export async function sortCurrentWindow(
   mode: SortMode, groupByHostname: boolean, api = chrome,
-  storage: Pick<Storage, 'getItem' | 'setItem'> = localStorage,
+  storage: SortStorage = localStorage,
   groupScope: GroupScope = 'hostname',
+  windowId?: number,
 ) {
-  const query = () => api.tabs.query({ currentWindow: true });
+  const query = () => api.tabs.query(windowId === undefined ? { currentWindow: true } : { windowId });
   let tabs = await query();
   let groupsCreated = 0;
 
@@ -101,8 +106,10 @@ export async function sortCurrentWindow(
       // Do not recognize promoted domain groups again through their legacy records.
       if (scope === 'hostname' && domainGroups.has(group.id)) continue;
       const label = group.title.slice(groupPrefix.length);
-      const hosts = [...new Set([label, ...labelHosts(storage, label, scope)])]
-        .filter(host => storage.getItem(`${scope}-group:` + host) === 'true');
+      const hosts: string[] = [];
+      for (const host of new Set([label, ...await labelHosts(storage, label, scope)])) {
+        if (await storage.getItem(`${scope}-group:` + host) === 'true') hosts.push(host);
+      }
       const members = tabs.filter(tab => tab.groupId === group.id);
       const eligible = hosts.filter(host => members.length > 0 && members.every(tab =>
         !tab.pinned && tab.id !== undefined && hostname(tab) && groupingKey(hostname(tab), scope) === host));
@@ -132,10 +139,10 @@ export async function sortCurrentWindow(
       if (ids) ids.push(tab.id);
       else candidates.set(host, [tab.id]);
     }
-    const recordLabel = (host: string, label: string) => {
+    const recordLabel = async (host: string, label: string) => {
       if (label === host) return;
-      const hosts = labelHosts(storage, label, groupScope);
-      if (!hosts.includes(host)) storage.setItem(`${groupScope}-group-label:` + label, JSON.stringify([...hosts, host]));
+      const hosts = await labelHosts(storage, label, groupScope);
+      if (!hosts.includes(host)) await storage.setItem(`${groupScope}-group-label:` + label, JSON.stringify([...hosts, host]));
     };
     for (const [host, groupId] of existing) {
       if (groupId === null) continue;
@@ -143,8 +150,8 @@ export async function sortCurrentWindow(
       const name = await siteName(members, host, groupScope, api);
       if (!name || groupPrefix + name === groups.find(group => group.id === groupId)!.title) continue;
       // Record before renaming so a storage failure leaves the old label recognizable.
-      recordLabel(host, name);
-      if (groupScope === 'domain') storage.setItem('domain-group:' + host, 'true');
+      await recordLabel(host, name);
+      if (groupScope === 'domain') await storage.setItem('domain-group:' + host, 'true');
       await api.tabGroups.update(groupId, { title: groupPrefix + name });
     }
     for (const [host, tabIds] of candidates) {
@@ -153,16 +160,16 @@ export async function sortCurrentWindow(
       if (groupId !== undefined) {
         if (groupScope === 'domain') {
           const label = groups.find(group => group.id === groupId)!.title!.slice(groupPrefix.length);
-          recordLabel(host, label);
-          storage.setItem('domain-group:' + host, 'true');
+          await recordLabel(host, label);
+          await storage.setItem('domain-group:' + host, 'true');
         }
         await api.tabs.group({ groupId, tabIds });
       } else if (tabIds.length >= 2) {
         const name = await siteName(tabs.filter(tab => tabIds.includes(tab.id!)), host, groupScope, api) || host;
         const createdId = await api.tabs.group({ tabIds });
         await api.tabGroups.update(createdId, { title: groupPrefix + name });
-        recordLabel(host, name);
-        storage.setItem(`${groupScope}-group:` + host, 'true');
+        await recordLabel(host, name);
+        await storage.setItem(`${groupScope}-group:` + host, 'true');
         managedGroups.add(createdId);
         groupsCreated++;
       }
