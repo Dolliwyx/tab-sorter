@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tab Sorter",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Sort tabs by title or hostname, with optional hostname groups. Pinned tabs stay untouched.",
   "permissions": [
     "tabs",
