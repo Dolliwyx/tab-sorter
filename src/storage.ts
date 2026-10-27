@@ -1,13 +1,15 @@
 import type { SortStorage } from './sort.ts';
 
-export function extensionStorage(area = chrome.storage.local): SortStorage {
+export async function extensionStorage(area = chrome.storage.local): Promise<SortStorage> {
+  const saved = await area.get(null);
   return {
-    async getItem(key) {
-      const value: unknown = (await area.get(key))[key];
+    getItem(key) {
+      const value: unknown = saved[key];
       return typeof value === 'string' ? value : null;
     },
     async setItem(key, value) {
       await area.set({ [key]: value });
+      saved[key] = value;
     },
   };
 }

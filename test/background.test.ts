@@ -11,6 +11,7 @@ test('commands and popup sort immediately using saved settings, pin the window a
     let tabs: any[] = [];
     const moves: number[][] = [];
     const queries: unknown[] = [];
+    const storageReads: (string | null)[] = [];
     const badges: string[] = [];
     let groups = 0;
     let focused = 7;
@@ -30,10 +31,11 @@ test('commands and popup sort immediately using saved settings, pin the window a
       windows: { getLastFocused: async () => ({ id: focused }) },
       action: { setBadgeText: async ({ text }: { text: string }) => { badges.push(text); } },
       storage: { local: {
-        get: async (key: string) => {
+        get: async (key: string | null) => {
+          storageReads.push(key);
           await read?.();
           if (failure) throw new Error('Storage failed');
-          return { [key]: records[key] };
+          return key === null ? { ...records } : { [key]: records[key] };
         },
         set: async (values: Record<string, unknown>) => { Object.assign(records, values); },
       } },
@@ -46,7 +48,12 @@ test('commands and popup sort immediately using saved settings, pin the window a
           return 100;
         },
       },
-      tabGroups: { query: async () => [], update: async () => {}, move: async () => {} },
+      tabGroups: {
+        query: async () => tabs.filter(tab => tab.groupId !== -1).map(tab => ({
+          id: tab.groupId, title: '[🤖] ' + new URL(tab.url).hostname,
+        })),
+        update: async () => {}, move: async () => {},
+      },
       scripting: { executeScript: async () => [] },
     } });
     console.error = () => {};
@@ -91,6 +98,20 @@ test('commands and popup sort immediately using saved settings, pin the window a
       assert.equal(result.result.tabsSorted, 2);
       assert.equal(result.result.groupsCreated, 0);
       assert.deepEqual(queries, Array.from({ length: mode === 'hostname' && grouping === 'true' ? 2 : 1 }, () => ({ windowId: 8 })));
+    }
+    for (const count of [1, 100]) {
+      Object.assign(records, { 'sort-mode': 'hostname', 'group-hostname': 'false', 'group-scope': 'hostname' });
+      reset();
+      tabs = Array.from({ length: count }, (_, index) => {
+        const host = `site${index}.example.com`;
+        records['hostname-group:' + host] = 'true';
+        return { id: index + 1, title: host, url: 'https://' + host, groupId: index + 1, index, windowId: 7 };
+      });
+      storageReads.length = 0;
+      const result = await new Promise<any>(resolve => message({ type: 'sort-tabs', windowId: 7 }, { id: 'extension' }, resolve));
+      assert.equal(result.result.tabsSorted, count);
+      assert.equal(result.result.groupsCreated, 0);
+      assert.deepEqual(storageReads, [null], `Load settings and ownership once for ${count} groups`);
     }
     failure = true;
     reset();

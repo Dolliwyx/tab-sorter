@@ -3,7 +3,7 @@ import { getDomain } from 'tldts';
 export type SortMode = 'title' | 'hostname';
 export type GroupScope = 'hostname' | 'domain';
 export interface SortStorage {
-  getItem(key: string): string | null | Promise<string | null>;
+  getItem(key: string): string | null;
   setItem(key: string, value: string): void | Promise<void>;
 }
 type Tab = chrome.tabs.Tab & { id: number };
@@ -13,8 +13,8 @@ function groupingKey(host: string, scope: GroupScope): string {
   return scope === 'domain' ? getDomain(host, { allowPrivateDomains: true }) || host : host;
 }
 
-async function labelHosts(storage: SortStorage, label: string, scope: GroupScope): Promise<string[]> {
-  const value: unknown = JSON.parse(await storage.getItem(`${scope}-group-label:` + label) || '[]');
+function labelHosts(storage: SortStorage, label: string, scope: GroupScope): string[] {
+  const value: unknown = JSON.parse(storage.getItem(`${scope}-group-label:` + label) || '[]');
   if (!Array.isArray(value) || !value.every(host => typeof host === 'string')) {
     throw new Error('Invalid saved group label.');
   }
@@ -106,10 +106,8 @@ export async function sortCurrentWindow(
       // Do not recognize promoted domain groups again through their legacy records.
       if (scope === 'hostname' && domainGroups.has(group.id)) continue;
       const label = group.title.slice(groupPrefix.length);
-      const hosts: string[] = [];
-      for (const host of new Set([label, ...await labelHosts(storage, label, scope)])) {
-        if (await storage.getItem(`${scope}-group:` + host) === 'true') hosts.push(host);
-      }
+      const hosts = [...new Set([label, ...labelHosts(storage, label, scope)])]
+        .filter(host => storage.getItem(`${scope}-group:` + host) === 'true');
       const members = tabs.filter(tab => tab.groupId === group.id);
       const eligible = hosts.filter(host => members.length > 0 && members.every(tab =>
         !tab.pinned && tab.id !== undefined && hostname(tab) && groupingKey(hostname(tab), scope) === host));
@@ -144,7 +142,7 @@ export async function sortCurrentWindow(
     }
     const recordLabel = async (host: string, label: string) => {
       if (label === host) return;
-      const hosts = await labelHosts(storage, label, groupScope);
+      const hosts = labelHosts(storage, label, groupScope);
       if (!hosts.includes(host)) await storage.setItem(`${groupScope}-group-label:` + label, JSON.stringify([...hosts, host]));
     };
     for (const [host, groupId] of existing) {

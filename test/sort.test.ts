@@ -730,7 +730,7 @@ test('storage failure prevents cross-subdomain expansion of a legacy group', asy
   ], new Map([['hostname-group:docs.example.com', 'true']]));
   chrome.groups.get(42)!.title = '[🤖] docs.example.com';
   const storage = {
-    getItem: async (key: string) => chrome.storage.getItem(key),
+    getItem: (key: string) => chrome.storage.getItem(key),
     setItem: async () => { throw new Error('Storage failed'); },
   };
   await assert.rejects(sortCurrentWindow('hostname', true, chrome.api, storage, 'domain'), /Storage failed/);

@@ -10,10 +10,10 @@ async function sort(windowId?: number) {
     // Capture the target before storage reads or a focus change during sorting.
     const target = windowId ?? (await chrome.windows.getLastFocused({ windowTypes: ['normal'] })).id;
     if (target === undefined || target < 0) throw new Error('No browser window to sort.');
-    const storage = extensionStorage();
-    const mode = await storage.getItem('sort-mode') === 'hostname' ? 'hostname' : 'title';
-    const grouping = await storage.getItem('group-hostname') === 'true';
-    const scope = await storage.getItem('group-scope') === 'domain' ? 'domain' : 'hostname';
+    const storage = await extensionStorage();
+    const mode = storage.getItem('sort-mode') === 'hostname' ? 'hostname' : 'title';
+    const grouping = storage.getItem('group-hostname') === 'true';
+    const scope = storage.getItem('group-scope') === 'domain' ? 'domain' : 'hostname';
     return await sortCurrentWindow(mode, grouping, chrome, storage, scope, target);
   } finally {
     sorting = false;

@@ -1,4 +1,5 @@
 import { extensionStorage, migrateStorage } from './storage.ts';
+import type { SortStorage } from './sort.ts';
 
 const form = document.querySelector<HTMLFormElement>('#sort-form')!;
 const mode = document.querySelector<HTMLSelectElement>('#sort-mode')!;
@@ -9,7 +10,7 @@ const status = document.querySelector<HTMLParagraphElement>('#status')!;
 const hint = document.querySelector<HTMLParagraphElement>('#group-hint')!;
 const available = typeof chrome !== 'undefined' && !!chrome.tabs?.query;
 
-const storage = available ? extensionStorage() : localStorage;
+let storage: SortStorage = localStorage;
 let saving = Promise.resolve();
 let saveError: unknown;
 
@@ -26,10 +27,13 @@ function save(key: string, value: string) {
 async function initialize() {
   button.disabled = true;
   mode.disabled = grouping.disabled = scope.disabled = true;
-  if (available) await migrateStorage(localStorage);
-  mode.value = await storage.getItem('sort-mode') === 'hostname' ? 'hostname' : 'title';
-  grouping.checked = await storage.getItem('group-hostname') === 'true';
-  scope.value = await storage.getItem('group-scope') === 'domain' ? 'domain' : 'hostname';
+  if (available) {
+    await migrateStorage(localStorage);
+    storage = await extensionStorage();
+  }
+  mode.value = storage.getItem('sort-mode') === 'hostname' ? 'hostname' : 'title';
+  grouping.checked = storage.getItem('group-hostname') === 'true';
+  scope.value = storage.getItem('group-scope') === 'domain' ? 'domain' : 'hostname';
   mode.disabled = false;
   button.disabled = !available;
   updateGrouping();

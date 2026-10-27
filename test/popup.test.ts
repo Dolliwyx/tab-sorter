@@ -25,12 +25,23 @@ test('popup remembers grouping scope, gates controls, submits the choice and rec
     for (const saved of [null, 'invalid', 'domain']) {
       const elements = new Map(['sort-form', 'sort-mode', 'group-hostname', 'group-scope', 'sort-button', 'status', 'group-hint']
         .map(id => [id, new Control()]));
-      const records = new Map<string, string>();
-      if (saved) records.set('group-scope', saved);
+      const legacy = new Map([
+        ['sort-mode', 'hostname'], ['group-hostname', 'false'],
+        ['hostname-group:legacy.example', 'true'], ['hostname-group-label:Legacy', '["legacy.example"]'],
+        ['domain-group:example.org', 'true'], ['domain-group-label:Example Org', '["example.org"]'],
+      ]);
+      if (saved) legacy.set('group-scope', saved);
+      const records = new Map<string, unknown>();
       const storage = {
-        getItem: (key: string) => records.get(key) ?? null,
-        setItem: (key: string, value: string) => { records.set(key, value); },
+        get length() { return legacy.size; },
+        key: (index: number) => [...legacy.keys()][index] ?? null,
+        getItem: (key: string) => legacy.get(key) ?? null,
+        setItem: (key: string, value: string) => { legacy.set(key, value); },
       };
+      let finishMigration!: () => void;
+      const migration = new Promise<void>(resolve => { finishMigration = resolve; });
+      let beforeWrite = async () => { await migration; };
+      let messages = 0;
       let groupsCreated = 0;
       let query = async () => [
         { id: 1, title: 'Root', url: 'https://example.com', groupId: -1, pinned: false, index: 0 },
@@ -42,12 +53,16 @@ test('popup remembers grouping scope, gates controls, submits the choice and rec
         chrome: { configurable: true, value: {
           storage: { local: {
             get: async (key: string | null) => key === null ? Object.fromEntries(records) : { [key]: records.get(key) },
-            set: async (values: Record<string, string>) => { for (const [key, value] of Object.entries(values)) records.set(key, value); },
+            set: async (values: Record<string, unknown>) => {
+              await beforeWrite();
+              for (const [key, value] of Object.entries(values)) records.set(key, value);
+            },
           } },
           windows: { getCurrent: async () => ({ id: 1 }) },
           runtime: { sendMessage: async (message: { type: string; windowId: number }) => {
             assert.deepEqual(message, { type: 'sort-tabs', windowId: 1 });
-            const storage = extensionStorage();
+            messages++;
+            const storage = await extensionStorage();
             try {
               return { result: await sortCurrentWindow(
                 records.get('sort-mode') === 'hostname' ? 'hostname' : 'title',
@@ -70,13 +85,25 @@ test('popup remembers grouping scope, gates controls, submits the choice and rec
       const module = new URL('../src/popup.ts', import.meta.url);
       module.searchParams.set('case', String(saved));
       await import(module.href);
-      await new Promise(resolve => setImmediate(resolve));
+      const settle = () => new Promise(resolve => setImmediate(resolve));
+      await settle();
       const mode = elements.get('sort-mode')!;
       const grouping = elements.get('group-hostname')!;
       const scope = elements.get('group-scope')!;
       const button = elements.get('sort-button')!;
       const status = elements.get('status')!;
       const form = elements.get('sort-form')!;
+      assert.equal(records.size, 0, 'Chrome storage starts empty and migration is still pending');
+      assert.ok([mode, grouping, scope, button].every(control => control.disabled));
+      await form.trigger('submit');
+      assert.equal(messages, 0, 'Cannot sort before migration completes');
+      finishMigration();
+      await settle();
+      beforeWrite = async () => {};
+      assert.deepEqual(Object.fromEntries(records), { ...Object.fromEntries(legacy), 'local-storage-migrated': true });
+      assert.equal(mode.value, 'hostname', 'Load migrated settings, not defaults');
+      assert.equal(grouping.checked, false);
+      assert.equal(button.disabled, false);
       assert.equal(scope.value, saved === 'domain' ? 'domain' : 'hostname');
       assert.equal(scope.disabled, true);
       mode.value = 'hostname';
@@ -90,6 +117,7 @@ test('popup remembers grouping scope, gates controls, submits the choice and rec
       assert.equal(groupsCreated, saved === 'domain' ? 1 : 0, 'Submit the loaded grouping scope');
       scope.value = 'domain';
       await scope.trigger('change');
+      await settle();
       assert.equal(records.get('group-scope'), 'domain');
       mode.value = 'title';
       await mode.trigger('change');
@@ -113,6 +141,38 @@ test('popup remembers grouping scope, gates controls, submits the choice and rec
       assert.equal(status.dataset.error, 'true');
       assert.match(status.textContent, /Fixture failure/);
       assert.ok([mode, grouping, scope, button].every(control => !control.disabled));
+
+      query = async () => [];
+      let finishSave!: () => void;
+      beforeWrite = () => new Promise<void>(resolve => { finishSave = resolve; });
+      scope.value = 'hostname';
+      await scope.trigger('change');
+      const beforeSubmit = messages;
+      const waiting = form.trigger('submit');
+      await settle();
+      assert.equal(messages, beforeSubmit, 'Submission waits for the setting write');
+      assert.equal(records.get('group-scope'), 'domain', 'Unfinished writes are not yet persisted');
+      finishSave();
+      await waiting;
+      assert.equal(records.get('group-scope'), 'hostname');
+      assert.equal(messages, beforeSubmit + 1, 'Sort only after settings are saved');
+
+      let rejectSave!: (error: Error) => void;
+      beforeWrite = () => new Promise<void>((_, reject) => { rejectSave = reject; });
+      scope.value = 'domain';
+      await scope.trigger('change');
+      const beforeFailure = messages;
+      const failedSubmission = form.trigger('submit');
+      await settle();
+      rejectSave(new Error('Setting save failed'));
+      await failedSubmission;
+      assert.equal(messages, beforeFailure, 'A failed setting save must not send a sort request');
+      assert.equal(records.get('group-scope'), 'hostname');
+      assert.equal(status.dataset.error, 'true');
+      assert.match(status.textContent, /Setting save failed/);
+      assert.equal(button.disabled, true);
+      await form.trigger('submit');
+      assert.equal(messages, beforeFailure, 'Sorting remains disabled after a failed save');
     }
   } finally {
     keys.forEach((key, index) => {
